@@ -31,3 +31,19 @@ class VideoCompositor:
             # Update the base clip (first element) with effects
             self.elements[0] = self.elements[0].with_effects(effects)
             print(f"Applied base video fade-in: {fade_in}s, fade-out: {fade_out}s")
+
+    def render(self, output_path, fps=24, codec='libx264'):
+        """
+        Composites all layers and saves the final video file.
+        """
+        print(f"Rendering {len(self.elements)} elements to {output_path}...")
+        final_video = CompositeVideoClip(self.elements, size=self.base_clip.size)
+        
+        final_video.write_videofile(
+            output_path, 
+            fps=fps, 
+            codec=codec, 
+            audio_codec='aac',
+            threads=4
+        )
+        print("Render complete!")
