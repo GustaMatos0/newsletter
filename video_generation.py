@@ -106,5 +106,46 @@ def process_images(
                 )
                 result = video_handler.get()
 
+            # Download
+            if result != None:
+                if 'video' in result and 'url' in result['video']:
+                    video_url = result['video']['url']
+                    log.info("  [4/4] Video generated successfully. Downloading...")
+                    download_video(video_url, image_path, download_path)
+            elif test_mode == "static_video":
+                video_url = "https://v3b.fal.media/files/b/0a8866f6/dmGBclH_CBmaku8J31ZE8_output.mp4"
+                log.info("defaulting...")
+                download_video(video_url, image_path, download_path)
+            else:
+                log.error(f"  Error: No video URL returned. Result: {result}")
+
         except Exception as e:
             log.error(f"  Error processing {image_path}: {e}")
+
+
+def download_video(url, original_path, target_folder):
+    """Downloads video to target_folder (or same as original if empty)."""
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        
+        # output path
+        base_name = os.path.basename(original_path)
+        name_part = os.path.splitext(base_name)[0]
+        filename = f"{name_part}_video.mp4"
+        
+        if target_folder:
+            output_path = os.path.join(target_folder, filename)
+        else:
+            # Save next to original file
+            original_dir = os.path.dirname(original_path)
+            output_path = os.path.join(original_dir, filename)
+
+        with open(output_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+        
+        log.info(f"  Saved to: {output_path}")
+        
+    except Exception as e:
+        log.error(f"  Failed to download: {e}")
