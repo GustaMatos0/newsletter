@@ -17,3 +17,17 @@ class VideoCompositor:
         self.video_width = self.base_clip.w
         self.video_height = self.base_clip.h
 
+    def apply_base_transitions(self, fade_in=0, fade_out=0, color=(0,0,0)):
+        """
+        Applies fade in/out to the main background video (fades to/from a color, default black).
+        """
+        effects = []
+        if fade_in > 0:
+            effects.append(vfx.FadeIn(duration=fade_in, initial_color=color))
+        if fade_out > 0:
+            effects.append(vfx.FadeOut(duration=fade_out, final_color=color))
+        
+        if effects:
+            # Update the base clip (first element) with effects
+            self.elements[0] = self.elements[0].with_effects(effects)
+            print(f"Applied base video fade-in: {fade_in}s, fade-out: {fade_out}s")
