@@ -47,3 +47,39 @@ class VideoCompositor:
             threads=4
         )
         print("Render complete!")
+
+    def add_image_overlay(self, image_path, start_time=0, duration=None, 
+                          position=('center', 'center'), opacity=1.0, scale=1.0,
+                          fade_in=0.0, fade_out=0.0):
+        """
+        Adds an image overlay with optional transitions.
+        """
+        if not os.path.exists(image_path):
+            print(f"Warning: Image path {image_path} not found. Skipping.")
+            return
+
+        # Load Image
+        new_clip = ImageClip(image_path)
+
+        # Handle Duration
+        final_duration = duration if duration else (self.duration - start_time)
+        new_clip = new_clip.with_start(start_time).with_duration(final_duration)
+
+        # Apply Resize & Opacity
+        if scale != 1.0:
+            new_clip = new_clip.resized(scale)
+        new_clip = new_clip.with_opacity(opacity)
+        new_clip = new_clip.with_position(position)
+
+        # Apply Transitions (CrossFade affects opacity)
+        effects = []
+        if fade_in > 0:
+            effects.append(vfx.CrossFadeIn(duration=fade_in))
+        if fade_out > 0:
+            effects.append(vfx.CrossFadeOut(duration=fade_out))
+        
+        if effects:
+            new_clip = new_clip.with_effects(effects)
+
+        self.elements.append(new_clip)
+        print(f"Added overlay: {os.path.basename(image_path)} (fades: {fade_in}s/{fade_out}s)")
