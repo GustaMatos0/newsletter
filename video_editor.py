@@ -225,6 +225,9 @@ class VideoCompositor:
             if effects: txt_clip = txt_clip.with_effects(effects)
 
             self.elements.append(txt_clip)
+    def render(self, output_path, fps=24):
+        final_video = CompositeVideoClip(self.elements, size=self.base_clip.size)
+        final_video.write_videofile(output_path, fps=fps, codec='libx264', audio_codec='aac', threads=4)
 
         effects = []
         if fade_in > 0:
