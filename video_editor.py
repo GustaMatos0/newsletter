@@ -196,10 +196,14 @@ class VideoCompositor:
         # Apply Resize & Opacity
         if scale != 1.0:
             new_clip = new_clip.resized(scale)
-        new_clip = new_clip.with_opacity(opacity)
-        new_clip = new_clip.with_position(position)
+        new_clip = new_clip.with_opacity(opacity).with_position(position)
 
-        # Apply Transitions (CrossFade affects opacity)
+        effects = []
+        if fade_in > 0: effects.append(vfx.CrossFadeIn(duration=fade_in))
+        if fade_out > 0: effects.append(vfx.CrossFadeOut(duration=fade_out))
+        if effects: new_clip = new_clip.with_effects(effects)
+
+        self.elements.append(new_clip)
         effects = []
         if fade_in > 0:
             effects.append(vfx.CrossFadeIn(duration=fade_in))
