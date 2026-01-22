@@ -228,15 +228,101 @@ class VideoCompositor:
     def render(self, output_path, fps=24):
         final_video = CompositeVideoClip(self.elements, size=self.base_clip.size)
         final_video.write_videofile(output_path, fps=fps, codec='libx264', audio_codec='aac', threads=4)
+class StorySequencer:
+    def __init__(self, output_width=1024, output_height=576):
+        self.w = output_width
+        self.h = output_height
+        self.clips = [] 
+        self.current_time = 0.0
 
+    def add_scene(self, video_path, title, caption, font='Arial',
+                  intro_duration=3.0,     # Static intro length
+                  slide_duration=1.0,     # Slide animation length
+                  fade_duration=1.0,      # Fade animation length
+                  text_direction='left'   # 'left' or 'right'
+                  ):
+        """
+        Creates a composite scene with sliding intro and side-bar text.
+        """
+        if not os.path.exists(video_path):
+            print(f"Skipping scene: Missing {video_path}")
+            return
+
+        # Load Video
+        # Resizing for good measure
+        raw_clip = VideoFileClip(video_path)
+        video_clip = resize_and_crop(raw_clip, self.w, self.h)
+        
+        # Extract first frame
+        first_frame = video_clip.get_frame(0)
+        intro_bg = ImageClip(first_frame)
+
+        # Calculate Overlap and Start Time
+        is_first_scene = (self.current_time == 0.0)
+        overlap_time = slide_duration if not is_first_scene else 0.0
+        scene_start_time = max(0, self.current_time - overlap_time)
+
+        print(f"Adding scene '{title.strip() if title else 'Untitled'}' at t={scene_start_time:.2f}s (Overlap: {overlap_time}s)")
+
+        # Intro 
+        intro_bg = intro_bg.with_start(scene_start_time).with_duration(intro_duration)
+        
         effects = []
-        if fade_in > 0:
-            effects.append(vfx.CrossFadeIn(duration=fade_in))
-        if fade_out > 0:
-            effects.append(vfx.CrossFadeOut(duration=fade_out))
+        if fade_duration > 0:
+            effects.append(vfx.CrossFadeIn(duration=fade_duration))
+        if slide_duration > 0:
+            effects.append(vfx.SlideIn(duration=slide_duration, side=text_direction))
         
         if effects:
-            new_clip = new_clip.with_effects(effects)
+            intro_bg = intro_bg.with_effects(effects)
+        
+        self.clips.append(intro_bg)
 
-        self.elements.append(new_clip)
-        print(f"Added overlay: {os.path.basename(image_path)} (fades: {fade_in}s/{fade_out}s)")
+        # Main Video
+        video_start_time = scene_start_time + intro_duration
+        video_clip = video_clip.with_start(video_start_time)
+        self.clips.append(video_clip)
+
+        # Side-Bar Text Overlay
+        if title or caption:
+            sidebar_width_target = int(self.w * 0.3)
+            
+            sidebar_clip = create_sidebar_clip(
+                width=sidebar_width_target,
+                height=self.h,
+                direction=text_direction,
+                title=title,
+                caption=caption,
+                font=font
+            )
+            
+            # Text starts when video starts
+            text_dur = video_clip.duration
+            sidebar_clip = sidebar_clip.with_start(video_start_time).with_duration(text_dur)
+            
+            # Positioning Logic (Manual animation)
+            if text_direction == 'left':
+                final_x = 0
+                start_x = -sidebar_clip.w
+            else:
+                final_x = self.w - sidebar_clip.w
+                start_x = self.w
+
+            def slide_pos(t):
+                if t < 1.0: 
+                    progress = t / 1.0
+                    x = start_x + (final_x - start_x) * progress
+                    return (int(x), "top")
+                else:
+                    return (int(final_x), "top")
+
+            sidebar_clip = sidebar_clip.with_position(slide_pos)
+            
+            text_effects = [vfx.CrossFadeIn(duration=0.5)]
+            sidebar_clip = sidebar_clip.with_effects(text_effects)
+            
+            self.clips.append(sidebar_clip)
+
+        # Update Cursor
+        self.current_time = video_start_time + video_clip.duration
+
