@@ -80,6 +80,55 @@ def create_text_clip(text, font, fontsize, color, size, align='center', stroke_c
         print(f"\n[ERROR] Failed to render text: '{text[:10]}...'")
         return None
 
+def create_sidebar_clip(width, height, direction, title, caption, font='Arial'):
+    """
+    Creates a composite clip containing the gradient background and text.
+    """
+    bg_width = int(width * 1.2) 
+    bg_clip = create_gradient_bar(bg_width, height, direction=direction)
+    
+    layers = [bg_clip]
+    
+    text_width = int(width * 0.8)
+    padding_x = int(width * 0.1)
+    
+    if direction == 'left':
+        txt_align = 'left'
+    else:
+        txt_align = 'right'
+
+    current_y = int(height * 0.1) 
+
+    if title:
+        title_clip = create_safe_text_clip(
+            title, font, fontsize=30, color='white', size=(text_width, None),
+            align=txt_align, stroke_color='black', stroke_width=2
+        )
+        if title_clip:
+            if direction == 'left':
+                x_pos = padding_x
+            else:
+                x_pos = bg_width - title_clip.w - padding_x
+                
+            title_clip = title_clip.with_position((x_pos, current_y))
+            layers.append(title_clip)
+            current_y += title_clip.h + 20
+            
+    if caption:
+        cap_clip = create_safe_text_clip(
+            caption, font, fontsize=20, color='yellow', size=(text_width, None),
+            align=txt_align, stroke_color='black', stroke_width=1
+        )
+        if cap_clip:
+            if direction == 'left':
+                x_pos = padding_x
+            else:
+                x_pos = bg_width - cap_clip.w - padding_x
+
+            cap_clip = cap_clip.with_position((x_pos, current_y))
+            layers.append(cap_clip)
+
+    return CompositeVideoClip(layers, size=(bg_width, height))
 
 class VideoCompositor:
     def __init__(self, base_video_path):
