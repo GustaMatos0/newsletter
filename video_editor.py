@@ -1,6 +1,44 @@
 import os
 import textwrap
-from moviepy import VideoFileClip, ImageClip, TextClip, CompositeVideoClip, vfx
+import numpy as np
+from moviepy import (
+    VideoFileClip, 
+    ImageClip, 
+    TextClip, 
+    CompositeVideoClip, 
+    ColorClip, 
+    vfx
+)
+# Helpers before main functionality
+
+# Cropping function
+
+def resize_and_crop(clip, target_w, target_h):
+    """
+    Resizes the clip to fill the target dimensions while maintaining aspect ratio,
+    then center crops the excess. This prevents aspect ratio mismatches.
+    """
+    w, h = clip.w, clip.h
+    
+    # Avoid division by zero
+    if h == 0 or target_h == 0:
+        return clip
+
+    target_ratio = target_w / target_h
+    current_ratio = w / h
+    
+    if current_ratio > target_ratio:
+        # Resize based on Height to fill vertically, then crop width.
+        new_clip = clip.resized(height=target_h)
+    else:
+        # Resize based on Width to fill horizontally, then crop height.
+        new_clip = clip.resized(width=target_w)
+        
+    # Center crop to exact target dimensions
+    return new_clip.cropped(width=target_w, height=target_h, x_center=new_clip.w / 2, y_center=new_clip.h / 2)
+
+
+
 
 class VideoCompositor:
     def __init__(self, base_video_path):
