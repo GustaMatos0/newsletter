@@ -39,6 +39,47 @@ def resize_and_crop(clip, target_w, target_h):
 
 
 
+def create_text_clip(text, font, fontsize, color, size, align='center', stroke_color=None, stroke_width=0):
+    """
+    Creates a TextClip with robust error handling for missing fonts and wrapping.
+    Fonts have to be in the same folder and named explicitly. Function does not access system fonts.
+    """
+    if not text:
+        return None
+
+    safe_width_px = int(size[0]) if size[0] else 1000
+    avg_char_width = fontsize * 0.5 
+    max_chars_per_line = max(1, int(safe_width_px / avg_char_width))
+    
+    if len(text) > max_chars_per_line:
+        final_text = textwrap.fill(text, width=max_chars_per_line)
+    else:
+        final_text = text
+    
+    final_text = final_text + "\n"
+
+    try:
+        clip = TextClip(
+            text=final_text, 
+            font_size=fontsize, 
+            color=color, 
+            font=font,
+            method='label', 
+            text_align=align, 
+            stroke_color=stroke_color,
+            stroke_width=stroke_width
+        )
+        
+        if clip.w == 0 or clip.h == 0:
+            print(f"[WARNING] Generated TextClip has 0 dimensions.")
+            return None
+            
+        return clip
+
+    except Exception as e:
+        print(f"\n[ERROR] Failed to render text: '{text[:10]}...'")
+        return None
+
 
 class VideoCompositor:
     def __init__(self, base_video_path):
