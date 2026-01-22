@@ -326,3 +326,23 @@ class StorySequencer:
         # Update Cursor
         self.current_time = video_start_time + video_clip.duration
 
+    def render(self, output_path, fps=24):
+        if not self.clips:
+            print("No clips to render.")
+            return
+
+        print(f"Compositing {len(self.clips)} elements...")
+        total_duration = self.current_time
+        bg = ColorClip(size=(self.w, self.h), color=(0,0,0), duration=total_duration)
+        final_movie = CompositeVideoClip([bg] + self.clips)
+        
+        print(f"Rendering full story to {output_path} (Duration: {total_duration:.2f}s)...")
+        final_movie.write_videofile(
+            output_path, 
+            fps=fps, 
+            codec='libx264', 
+            audio_codec='aac',
+            threads=4
+        )
+        print("Story render complete!")
+
