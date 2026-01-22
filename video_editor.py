@@ -204,6 +204,28 @@ class VideoCompositor:
         if effects: new_clip = new_clip.with_effects(effects)
 
         self.elements.append(new_clip)
+    def add_text_overlay(self, text, font='Arial', fontsize=50, color='white', 
+                         start_time=0, duration=None, position=('center', 'bottom'), 
+                         opacity=1.0, stroke_color=None, stroke_width=0,
+                         fade_in=0.0, fade_out=0.0):
+        
+        txt_clip = create_safe_text_clip(
+            text, font, fontsize, color, (self.video_width, None), 
+            align='center', stroke_color=stroke_color, stroke_width=stroke_width
+        )
+        
+        if txt_clip:
+            final_duration = duration if duration else (self.duration - start_time)
+            txt_clip = txt_clip.with_start(start_time).with_duration(final_duration)
+            txt_clip = txt_clip.with_opacity(opacity).with_position(position)
+
+            effects = []
+            if fade_in > 0: effects.append(vfx.CrossFadeIn(duration=fade_in))
+            if fade_out > 0: effects.append(vfx.CrossFadeOut(duration=fade_out))
+            if effects: txt_clip = txt_clip.with_effects(effects)
+
+            self.elements.append(txt_clip)
+
         effects = []
         if fade_in > 0:
             effects.append(vfx.CrossFadeIn(duration=fade_in))
