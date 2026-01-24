@@ -9,8 +9,8 @@ from moviepy import (
     ColorClip, 
     vfx
 )
-# Helpers before main functionality
 
+# Helpers before main functionality
 # Cropping function
 
 def resize_and_crop(clip, target_w, target_h):
