@@ -1,2 +1,4 @@
 .env
 testing_tools
+
+__pycache__
