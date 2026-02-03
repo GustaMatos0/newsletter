@@ -10,6 +10,10 @@ DEFAULT_VISION_ENDPOINT = "openrouter/router/vision"
 DEFAULT_VISION_MODEL = "google/gemini-2.5-flash" 
 DEFAULT_VIDEO_ENDPOINT = "fal-ai/kandinsky5-pro/image-to-video"
 
+
+DEFAULT_VOICE_ID = "b8jhBTcGAq4kQGWmKprT" 
+ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
+
 load_dotenv()
 
 
@@ -61,9 +65,10 @@ def process_images(
             
             # Construct request for vision model
             vision_prompt = (
-                "Describe this image in detail. Then, based on the description, "
-                "write a single, creative, high-quality prompt for a cinematic video generation model. "
-                "The video should have motion and life. "
+                "Based on this image, write a single, creative, high-quality prompt for an 8s cinematic video generation model. "
+                "Be succint, not verbose; A good prompt should ideally be short"
+                "Keep it simple and realistic, showcasing the subject of the photo, not modifying it."
+                "You can play with camera angles, but be careful adding motion to where none should be."
                 "Output ONLY the final video generation prompt, nothing else."
             )
             
