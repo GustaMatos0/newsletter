@@ -1,6 +1,5 @@
 import os
 import textwrap
-import math
 import numpy as np
 from moviepy import (
     VideoFileClip, 
@@ -8,8 +7,6 @@ from moviepy import (
     TextClip, 
     CompositeVideoClip, 
     ColorClip, 
-    AudioFileClip,
-    concatenate_videoclips,
     vfx
 )
 
@@ -40,32 +37,7 @@ def resize_and_crop(clip, target_w, target_h):
     # Center crop to exact target dimensions
     return new_clip.cropped(width=target_w, height=target_h, x_center=new_clip.w / 2, y_center=new_clip.h / 2)
 
-def create_gradient_bar(width, height, direction='left', color=(0,0,0), max_opacity=0.8):
-    """
-    Creates a vertical gradient bar (RGBA) for text background using numpy.
-    """
-    w, h = int(width), int(height)
-    
-    if w <= 0 or h <= 0:
-        return ColorClip(size=(max(1, w), max(1, h)), color=(0,0,0,0))
 
-    x = np.linspace(0, 1, w)
-    
-    if direction == 'left':
-        alpha_row = (1 - x) * 255 * max_opacity
-    else: # right
-        alpha_row = x * 255 * max_opacity
-        
-    alpha_row = alpha_row.reshape(1, w)
-    alpha = np.tile(alpha_row, (h, 1))
-    
-    r = np.full((h, w), color[0])
-    g = np.full((h, w), color[1])
-    b = np.full((h, w), color[2])
-    
-    img_array = np.dstack((r, g, b, alpha)).astype(np.uint8)
-    
-    return ImageClip(img_array)
 
 def create_text_clip(text, font, fontsize, color, size, align='center', stroke_color=None, stroke_width=0):
     """
@@ -108,8 +80,7 @@ def create_text_clip(text, font, fontsize, color, size, align='center', stroke_c
         print(f"\n[ERROR] Failed to render text: '{text[:10]}...'")
         return None
 
-def create_sidebar_clip(width, height, direction, title, caption, title_font = 'Arial',  title_size = 30,
-                         caption_font = 'Arial', caption_size = 20):
+def create_sidebar_clip(width, height, direction, title, caption, font='Arial'):
     """
     Creates a composite clip containing the gradient background and text.
     """
@@ -129,8 +100,8 @@ def create_sidebar_clip(width, height, direction, title, caption, title_font = '
     current_y = int(height * 0.1) 
 
     if title:
-        title_clip = create_text_clip(
-            title, title_font, title_size, color='white', size=(text_width, None),
+        title_clip = create_safe_text_clip(
+            title, font, fontsize=30, color='white', size=(text_width, None),
             align=txt_align, stroke_color='black', stroke_width=2
         )
         if title_clip:
@@ -144,8 +115,8 @@ def create_sidebar_clip(width, height, direction, title, caption, title_font = '
             current_y += title_clip.h + 20
             
     if caption:
-        cap_clip = create_text_clip(
-            caption, caption_font, caption_size, color='yellow', size=(text_width, None),
+        cap_clip = create_safe_text_clip(
+            caption, font, fontsize=20, color='yellow', size=(text_width, None),
             align=txt_align, stroke_color='black', stroke_width=1
         )
         if cap_clip:
@@ -207,7 +178,7 @@ class VideoCompositor:
                          opacity=1.0, stroke_color=None, stroke_width=0,
                          fade_in=0.0, fade_out=0.0):
         
-        txt_clip = create_text_clip(
+        txt_clip = create_safe_text_clip(
             text, font, fontsize, color, (self.video_width, None), 
             align='center', stroke_color=stroke_color, stroke_width=stroke_width
         )
@@ -236,20 +207,15 @@ class StorySequencer:
         self.clips = [] 
         self.current_time = 0.0
 
-    def add_scene(self, video_path, title, caption, title_font ='Arial',
-                    caption_font = 'Arial',
-                    effects_duration = 0.5,      # Fade animation length
-                    text_direction='left',       # 'left' or 'right'
-                    audio_path=None              # Optional audio path
-                    ):
+    def add_scene(self, video_path, title, caption, font='Arial',
+                  intro_duration=3.0,     # Static intro length
+                  slide_duration=1.0,     # Slide animation length
+                  fade_duration=1.0,      # Fade animation length
+                  text_direction='left'   # 'left' or 'right'
+                  ):
         """
-        Creates a composite scene with sliding intro, side-bar text, and optional audio.
+        Creates a composite scene with sliding intro and side-bar text.
         """
-
-        intro_duration = effects_duration
-        slide_duration = effects_duration
-        fade_duration = effects_duration
-
         if not os.path.exists(video_path):
             print(f"Skipping scene: Missing {video_path}")
             return
@@ -284,28 +250,8 @@ class StorySequencer:
         
         self.clips.append(intro_bg)
 
-        # Main Video Logic (Audio Handling)
+        # Main Video
         video_start_time = scene_start_time + intro_duration
-        
-        # Handle Audio and Looping
-        if audio_path and os.path.exists(audio_path):
-            audio_clip = AudioFileClip(audio_path)
-            
-            # If Audio is longer than Video, Loop the Video
-            if audio_clip.duration > video_clip.duration:
-                # Calculate required loops
-                loops = math.ceil(audio_clip.duration / video_clip.duration)
-                print(f"  [Looping] Audio ({audio_clip.duration:.2f}s) > Video ({video_clip.duration:.2f}s). Looping {loops} times.")
-                
-                # Loop by concatenating
-                video_clip = concatenate_videoclips([video_clip] * loops)
-                # Trim to exact audio length
-                video_clip = video_clip.with_duration(audio_clip.duration)
-            
-            # Attach audio to video
-            video_clip = video_clip.with_audio(audio_clip)
-        
-        # Set start time for video (now potentially looped)
         video_clip = video_clip.with_start(video_start_time)
         self.clips.append(video_clip)
 
@@ -319,11 +265,10 @@ class StorySequencer:
                 direction=text_direction,
                 title=title,
                 caption=caption,
-                title_font = title_font,
-                caption_font = caption_font
+                font=font
             )
             
-            # Text starts when video starts and lasts for the full duration of the (possibly looped) video
+            # Text starts when video starts
             text_dur = video_clip.duration
             sidebar_clip = sidebar_clip.with_start(video_start_time).with_duration(text_dur)
             
@@ -373,68 +318,3 @@ class StorySequencer:
         )
         print("Story render complete!")
 
-
-if __name__ == "__main__":
-    # --- Example Usage for Sequencer ---
-    sequencer = StorySequencer(output_width=1280, output_height=720)
-
-
-    vid1 = "output_videos/caffetteria_video.mp4"
-    vid2 = "output_videos/davide_video.mp4"
-    vid3 = "output_videos/saranno_video.mp4"
-    vid4 = "output_videos/retrospettiva_video.mp4"
-    vid5 = "output_videos/testaccio_video.mp4"
-    
-    # Example showing audio usage (assuming files exist)
-    if os.path.exists(vid1):
-        sequencer.add_scene(
-            video_path=vid1,
-            title="Inaugura la caffetteria della nuova Piazza Augusto Imperatore a Roma. Altra occasione persa di ristorazione museale.",
-            caption="Concepito come servizio museale aggiuntivo del vicino Museo dell’Ara Pacis e del complesso archeologico del Mausoleo di Augusto, Augusto Caffè è l’ennesimo progetto di ristorazione museale senza guizzi, in uno spazio unico al mondo. I limiti di gare d’appalto non aggiornate.",
-            effects_duration = 0.5,
-            text_direction='left',
-            audio_path="caffetteria_audio.mp3" 
-        )
-
-    if os.path.exists(vid2):
-        sequencer.add_scene(
-            video_path=vid2,
-            title="Davide Livermore diventa direttore unico del Teatro di Genova. Ma ora c’è anche una direttrice junior.",
-            caption="Nuovo assetto istituzionale al Teatro Nazionale di Genova: Davide Livermore diventa direttore unico mentre l’artista di origini africane Princess Isatu Hassan Bangura è direttrice junior",
-            effects_duration=0.5,
-            text_direction='left',
-            audio_path="davide_audio.mp3"
-        )
-
-    if os.path.exists(vid3):
-        sequencer.add_scene(
-            video_path=vid3,
-            title="Saranno due artisti giovani e talentuosi a dipingere i due drappelloni per il Palio di Siena 2026.",
-            caption="Scelti i due artisti che dipingeranno il drappellone per il doppio appuntamento con il Palio dell’estate 2026. Una è protagonista di una mostra site specific nel complesso di Santa Maria della Scala.",
-            effects_duration=0.5,
-            text_direction='right',
-            audio_path="saranno_audio.mp3"
-        )
-
-    if os.path.exists(vid4):
-        sequencer.add_scene(
-            video_path=vid4,
-            title="La prima retrospettiva italiana dedicata alla grande artista Helen Chadwick è a Firenze.",
-            caption="Al Museo del Novecento di Firenze sbocciano le opere dell’artista inglese che con la sua pratica, scomoda e fuori dagli schemi, ha aperto un filone di ricerca politico ed eco femminista essenziale per tutta l’arte degli anni successivi",
-            effects_duration=0.5,
-            text_direction='right',
-            audio_path="retrospettiva_audio.mp3"
-        )
-
-    if os.path.exists(vid5):
-        sequencer.add_scene(
-            video_path=vid5,
-            title="Il Comune di Roma fa debuttare un centro dedicato alla fotografia all’ex Mattatoio di Testaccio.",
-            caption="Il nuovo centro trova casa nel Padiglione 9D dell’ex complesso industriale ottocentesco di Testaccio, uno spazio di circa 1500 metri quadrati restituito alla città dopo un intervento pubblico da circa cinque milioni di euro.",
-            effects_duration=0.5,
-            text_direction='right',
-            audio_path="testaccio_audio.mp3"
-        )
-
-    if sequencer.clips:
-        sequencer.render("my_full_movie_with_audio.mp4")
