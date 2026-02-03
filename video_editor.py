@@ -284,8 +284,28 @@ class StorySequencer:
         
         self.clips.append(intro_bg)
 
-        # Main Video
+        # Main Video Logic (Audio Handling)
         video_start_time = scene_start_time + intro_duration
+        
+        # Handle Audio and Looping
+        if audio_path and os.path.exists(audio_path):
+            audio_clip = AudioFileClip(audio_path)
+            
+            # If Audio is longer than Video, Loop the Video
+            if audio_clip.duration > video_clip.duration:
+                # Calculate required loops
+                loops = math.ceil(audio_clip.duration / video_clip.duration)
+                print(f"  [Looping] Audio ({audio_clip.duration:.2f}s) > Video ({video_clip.duration:.2f}s). Looping {loops} times.")
+                
+                # Loop by concatenating
+                video_clip = concatenate_videoclips([video_clip] * loops)
+                # Trim to exact audio length
+                video_clip = video_clip.with_duration(audio_clip.duration)
+            
+            # Attach audio to video
+            video_clip = video_clip.with_audio(audio_clip)
+        
+        # Set start time for video (now potentially looped)
         video_clip = video_clip.with_start(video_start_time)
         self.clips.append(video_clip)
 
