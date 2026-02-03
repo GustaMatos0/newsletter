@@ -1,5 +1,6 @@
 import smtplib
 from email.message import EmailMessage
+from dotenv import load_dotenv
 
 def send_custom_email(recipient_address, subject, message_body):
     """
@@ -8,7 +9,7 @@ def send_custom_email(recipient_address, subject, message_body):
     """
     # Configuration - Replace with your credentials
     sender_email = "ellendsantos1@gmail.com"
-    app_password = "cfpv gyce uqar ssgg" # 16-character Google App Password
+    app_password = "ivxd gsky vdam hjcu" # 16-character Google App Password
 
     # Creating the email structure
     msg = EmailMessage()
