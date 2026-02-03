@@ -1,11 +1,13 @@
 import imaplib
 import email
 import os
+from dotenv import load_dotenv
+
 
 def download_attachments_from_email():
     host = 'imap.gmail.com'
     username = 'ellendsantos1@gmail.com'
-    password = 'cfpv gyce uqar ssgg'
+    password = 'ivxd gsky vdam hjcu'
     
     if not os.path.exists('downloads'):
         os.makedirs('downloads')
