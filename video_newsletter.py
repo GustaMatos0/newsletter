@@ -5,7 +5,7 @@ import argparse
 
 # Import your custom modules
 try:
-    from video_generator import process_images
+    from video_generation import process_images
     from video_editor import StorySequencer
 except ImportError as e:
     print(f"Error importing modules: {e}")
@@ -35,9 +35,13 @@ def run_video_generation(config):
     images_to_process = {}
     
     for scene in scenes:
+        # Generation strictly requires an input image
         img_path = scene.get("image_path")
-        if not img_path or not os.path.exists(img_path):
-            print(f"[Warning] Source image '{img_path}' not found. Skipping.")
+        if not img_path:
+            continue
+            
+        if not os.path.exists(img_path):
+            print(f"[Warning] Source image '{img_path}' not found. Skipping generation for this scene.")
             continue
             
         # Predict output filename
@@ -73,26 +77,46 @@ def run_editor(config):
     # Initialize Sequencer
     sequencer = StorySequencer(output_width=output_res[0], output_height=output_res[1])
 
-    for scene in scenes:
-        img_path = scene.get("image_path")
-        if not img_path: continue
+    n = 0
 
-        # Resolve video path
-        base_name = os.path.splitext(os.path.basename(img_path))[0]
-        video_path = os.path.join(video_folder, f"{base_name}_video.mp4")
+    for i, scene in enumerate(scenes):
+        # 1. Check for explicit video path in JSON
+        video_path = scene.get("video_path")
 
-        if os.path.exists(video_path):
-            sequencer.add_scene(
-                video_path=video_path,
-                title=scene.get("title", ""),
-                caption=scene.get("caption", ""),
-                intro_duration=scene.get("intro_duration", 3.0),
-                slide_duration=scene.get("slide_duration", 1.5),
-                fade_duration=scene.get("fade_duration", 1.5),
-                text_direction=scene.get("text_direction", "left")
-            )
+        # 2. If no explicit path, try to auto-resolve using image_path (for "All" workflow)
+        if not video_path and "image_path" in scene:
+            img_path = scene["image_path"]
+            base_name = os.path.splitext(os.path.basename(img_path))[0]
+            # Assumes the naming convention from run_video_generation
+            video_path = os.path.join(video_folder, f"{base_name}_video.mp4")
+
+        # 3. Validate
+        if not video_path:
+            print(f"[Skipping Scene {i+1}] No 'video_path' provided and could not derive from 'image_path'.")
+            continue
+        if n == 0:
+            if os.path.exists(video_path):
+                sequencer.add_scene(
+                    video_path=video_path,
+                    title=scene.get("title", ""),
+                    caption=scene.get("caption", ""),
+                    effects_duration=scene.get("effects_duration", 0),
+                    text_direction=scene.get("text_direction", "left")
+                )
+                n = 1
+            else:
+                print(f"[Error] Video file not found: {video_path}")
         else:
-            print(f"[Error] Missing video file for scene: {video_path}")
+            if os.path.exists(video_path):
+                sequencer.add_scene(
+                        video_path=video_path,
+                        title=scene.get("title", ""),
+                        caption=scene.get("caption", ""),
+                        effects_duration=scene.get("effects_duration", 0.5),
+                        text_direction=scene.get("text_direction", "left")
+                    )
+            else:
+                print(f"[Error] Video file not found: {video_path}")
 
     if sequencer.clips:
         print(f"Rendering final movie to {final_filename}...")
