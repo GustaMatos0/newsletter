@@ -1,61 +1,50 @@
-from receiver import download_attachments_from_email
-from mailer import send_custom_email
-from processor import excel_reading
-import glob
+from communication import send_custom_email, download_and_process_latest_spreadsheet
 import os
 
 def run_workflow():
-    print("Starting Automation Process...")
+    print(" Starting Automation Process...")
 
-    # Step 1: Check for new spreadsheets
-    # This will look for unread emails and download .xlsx files to /downloads
-    success_receiving = download_attachments_from_email()
+    # Step 1: Download and Process the spreadsheet
+    # This single call now handles: Connecting to Gmail, Downloading the .xlsx,
+    # and converting it into a list of dictionaries (scenes).
+    scenes = download_and_process_latest_spreadsheet()
 
-    if success_receiving:
-        # Step 2: Send Confirmation Email (First Email)
-        # In a real scenario, you'd get the sender's email from the receiver module
-        test_client_email = "ellendsantos1@gmail.com"
+    if scenes:
+        # Step 2: Send Confirmation Email
+        # In a real scenario, this could be dynamic
+        client_email = "ellendsantos1@gmail.com"
         
         send_custom_email(
-            test_client_email,
-            "Confirmation: File Received",
-            "Hello! We received your spreadsheet. Our system is starting the analysis now."
+            client_email,
+            "Confirmation: Processing Started",
+            "Hello! We have successfully received and parsed your spreadsheet. Generating content now."
         )
 
-        # Step 3: Logic for processing the spreadsheet
-        print("⚙️ Processing data...")
+        # Step 3: Logic for content generation (Audio/Video)
+        print(f"  Loaded {len(scenes)} scenes. Starting generation...")
         
-        # Search for the most recent Excel file in the downloads folder 
-        archive_list = glob.glob("downloads/*.xlsx")
-        
-        if archive_list:
-            # Get the file with the most recent modification date
-            spreadsheet_path = max(archive_list, key=os.path.getmtime)
-            print(f"Reading file: {spreadsheet_path}")
+        for i, scene in enumerate(scenes):
+            # Using .get() to avoid errors if the column name varies
+            text = scene.get('scene_text', 'No text found')
+            image = scene.get('Nome_Imagem', 'No image specified')
+            
+            print(f"\n--- Scene {i+1} ---")
+            print(f"Text: {text}")
+            print(f"Image Reference: {image}")
+            
+            # This is where you would call your audio/video generation functions
+            # e.g., generate_speech(text, f"downloads/audio_{i}.mp3")
 
-            # Call your processor function here
-            scenes = excel_reading(spreadsheet_path)
-
-            if scenes:
-                for i, scene in enumerate(scenes):
-                    # Printing the content of each row for testing purposes
-                    # Note: 'scene_text' must match the column name in your Excel
-                    print(f"Scene {i+1} loaded: {scene.get('scene_text', 'No text')}")
-            else:
-                print("The spreadsheet was found, but returned no data.")
-        else:
-            print("No .xlsx files found in the downloads folder.")
-
-        # Step 4: Send Completion Email (Second Email)
+        # Step 4: Send Completion Email
         send_custom_email(
-            test_client_email,
+            client_email,
             "Process Finished",
-            "Great news! The process is complete and your data has been updated."
+            "Great news! All scenes have been processed and your content is ready."
         )
         
         print("\n Workflow finished successfully!")
     else:
-        print("No new files found or error in connection.")
+        print(" No new spreadsheets found or error in processing.")
 
 if __name__ == "__main__":
     run_workflow()
