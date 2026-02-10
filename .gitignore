@@ -1,5 +1,9 @@
 .env
 testing_tools
 
+downloads
+generated_audio
+generated_videos
+
 __pycache__
 
