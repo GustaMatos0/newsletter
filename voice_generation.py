@@ -1,36 +1,80 @@
 import os
-import fal_client
 import requests
 import mimetypes
 from dotenv import load_dotenv
-import logging as log 
+import logging as log
+from pydub import AudioSegment
 
-
+# Constants
 DEFAULT_VOICE_ID = "b8jhBTcGAq4kQGWmKprT" 
 ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
 load_dotenv()
 
+def apply_noise_gate(audio_segment, threshold_db=-32.0, chunk_size_ms=10):
+    """
+    Applies a simple noise gate to the audio to remove breathing/silence.
+    """
+    ranges_to_silence = []
+    current_silence_start = None
+    
+    # Scan audio loudness
+    for i in range(0, len(audio_segment), chunk_size_ms):
+        chunk = audio_segment[i:i+chunk_size_ms]
+        
+        if chunk.dBFS < threshold_db:
+            if current_silence_start is None:
+                current_silence_start = i
+        else:
+            if current_silence_start is not None:
+                ranges_to_silence.append((current_silence_start, i))
+                current_silence_start = None
+                
+    # Handle end of file
+    if current_silence_start is not None:
+        ranges_to_silence.append((current_silence_start, len(audio_segment)))
+        
+    if not ranges_to_silence:
+        return audio_segment
+        
+    print(f"    -> Noise Gate: Detected {len(ranges_to_silence)} breath/silence segments.")
+    
+    cleaned_audio = audio_segment
+    
+    # Process in reverse order to maintain indices while constructing new audio
+    for start, end in ranges_to_silence[::-1]:
+        duration = end - start
+        if duration < 50: # Ignore tiny micro-gaps (artifacts)
+            continue
+            
+        silence_chunk = AudioSegment.silent(duration=duration)
+        
+        # Replace the breathy section with pure silence
+        cleaned_audio = cleaned_audio[:start] + silence_chunk + cleaned_audio[end:]
+        
+    return cleaned_audio0
 
 def generate_speech(
     text, 
     output_path, 
     api_key=None, 
     voice_id=DEFAULT_VOICE_ID,
-    title_pause=1.0,    # Time in seconds to wait after the Title (first line)
-    sentence_pause=0.2  # Time in seconds to wait after every full stop
+    title_pause=1.0,
+    sentence_pause=0.2,
+    noise_gate_threshold=-32.0
 ):
     """
-    Generates Italian speech with a professional news tone using ElevenLabs.
-    Automatically inserts SSML breaks for pacing, but avoids trailing silence.
+    Generates Italian speech using ElevenLabs, then applies a noise gate 
+    to remove breathing sounds before saving the final file.
     
     Args:
         text (str): The text to be spoken. First line is treated as Title.
-        output_path (str): File path to save the .mp3 audio.
-        api_key (str): ElevenLabs API Key. Defaults to env variable ELEVENLABS_API_KEY.
-        voice_id (str): The ElevenLabs Voice ID. Defaults to "Sami - Italian News".
-        title_pause (float): Seconds of silence after the first line (Title).
-        sentence_pause (float): Seconds of silence after each period (.).
+        output_path (str): File path to save the final .mp3 audio.
+        api_key (str): ElevenLabs API Key. Defaults to env variable.
+        voice_id (str): The ElevenLabs Voice ID.
+        title_pause (float): Seconds of silence after the first line.
+        sentence_pause (float): Seconds of silence after each period.
+        noise_gate_threshold (float): dB threshold for removing breath sounds.
     """
     # 1. Get API Key
     key = api_key or os.environ.get("ELEVENLABS_API_KEY")
@@ -55,8 +99,8 @@ def generate_speech(
     parts = text.strip().split('\n', 1)
 
     if len(parts) == 2:
-        title = text[0]
-        body = " ".join(text[1:])
+        title = parts[0]
+        body = parts[1]
         processed_body = add_breaks(body)
         final_text = f"{title} <break time=\"{title_pause}s\" /> {processed_body}"
     else:
@@ -72,11 +116,8 @@ def generate_speech(
         "xi-api-key": key
     }
 
-    print(final_text)
-    
     data = {
         "text": final_text,
-        # 'eleven_multilingual_v2' supports SSML <break> tags
         "model_id": "eleven_multilingual_v2", 
         "voice_settings": {
             "stability": 0.3,       
@@ -91,12 +132,34 @@ def generate_speech(
         response = requests.post(url, json=data, headers=headers)
         
         if response.status_code == 200:
-            # 5. Save Audio
-            with open(output_path, 'wb') as f:
+            # 5. Save Audio to Temp File
+            temp_path = f"temp_{os.path.basename(output_path)}"
+            with open(temp_path, 'wb') as f:
                 for chunk in response.iter_content(chunk_size=1024):
                     if chunk:
                         f.write(chunk)
-            print(f"  Audio saved to: {output_path}")
+            
+            # 6. Apply Noise Gate
+            try:
+                print(f"  Applying noise gate (Threshold: {noise_gate_threshold}dB)...")
+                audio = AudioSegment.from_mp3(temp_path)
+                cleaned = apply_noise_gate(audio, threshold_db=noise_gate_threshold)
+                
+                # 7. Export Cleaned Audio
+                cleaned.export(output_path, format="mp3")
+                print(f"  Audio cleaned and saved to: {output_path}")
+                
+            except Exception as e:
+                print(f"  Error during noise gate processing: {e}")
+                # Fallback: Rename temp to output if pydub fails
+                if os.path.exists(temp_path):
+                    os.rename(temp_path, output_path)
+                    print("  Saved original audio (uncleaned) due to error.")
+            
+            # 8. Cleanup Temp File
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
         else:
             print(f"  Error: ElevenLabs API returned {response.status_code}")
             print(f"  Details: {response.text}")
