@@ -3,45 +3,17 @@ import imaplib
 import email
 import os
 import pandas as pd
+import gdown
 from email.message import EmailMessage
 from dotenv import load_dotenv
 
-# Load credentials from .env file
 load_dotenv()
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
 
-# --- INTEGRATED PROCESSOR FUNCTIONS ---
-
-def excel_reading(archive_path):
-    """
-    Transforms Excel rows into a list of dictionaries (scenes).
-    """
-    if not os.path.exists(archive_path):
-        print(f" Error: The file {archive_path} does not exist!")
-        return []
-
-    try:
-        # Read the Excel file using Pandas
-        df = pd.read_excel(archive_path)
-        # Cleanup: remove rows that are completely empty
-        df = df.dropna(how='all')
-        # Convert to a list of dictionaries
-        scenes = df.to_dict(orient='records')
-        
-        print(f" Success! {len(scenes)} scenes processed from spreadsheet.")
-        return scenes
-    except Exception as e:
-        print(f"Error processing Excel: {e}")
-        return []
-
-# --- COMMUNICATION FUNCTIONS ---
-
+# --- FUNÇÕES DE E-MAIL ---
 def send_custom_email(recipient_address, subject, message_body):
-    """
-    Sends an email using SMTP.
-    Used for confirmation and completion alerts.
-    """
+    """Envia e-mail via SMTP."""
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = EMAIL_USER
@@ -52,79 +24,117 @@ def send_custom_email(recipient_address, subject, message_body):
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
             smtp.login(EMAIL_USER, EMAIL_PASS)
             smtp.send_message(msg)
-        print(f"Message sent to {recipient_address}")
+        print(f"E-mail enviado para {recipient_address}")
         return True
     except Exception as e:
-        print(f" Error sending email: {e}")
+        print(f" Erro ao enviar e-mail: {e}")
         return False
 
-def download_and_process_latest_spreadsheet():
+def send_confirmation_email(recipient, subject, body):
+    return send_custom_email(recipient, subject, body)
+
+# --- FUNÇÕES DE DOWNLOAD ---
+def download_video_logic(url, name, redo=False):
+    if not os.path.exists('downloads/videos'):
+        os.makedirs('downloads/videos')
+    
+    path = f"downloads/videos/{name}.mp4"
+    
+    # Se o vídeo já existe e redo é False, pula o download
+    if os.path.exists(path) and not redo:
+        print(f" Vídeo '{name}' já existe. Pulando.")
+        return path
+
+    try:
+        print(f" Baixando vídeo: {name}...")
+        # fuzzy=True ajuda a baixar de links do Google Drive que não são diretos
+        gdown.download(url, path, quiet=True, fuzzy=True)
+        return path
+    except Exception as e:
+        print(f" Erro ao baixar vídeo {name}: {e}")
+        return None
+
+def download_image_logic(url, name):
     """
-    Scans the inbox for emails with spreadsheets, downloads the most recent one,
-    and returns the processed data (scenes).
+    Baixa imagem do Google Drive e salva como .jpg
     """
+    if not os.path.exists('downloads/images'):
+        os.makedirs('downloads/images')
+    
+    path = f"downloads/images/{name}.jpg"
+    
+    # Verifica se a imagem já existe para não baixar repetido
+    if os.path.exists(path):
+         print(f" Imagem '{name}' já existe. Pulando.")
+         return path
+
+    try:
+        print(f" Baixando imagem: {name}...")
+        gdown.download(url, path, quiet=True, fuzzy=True)
+        return path
+    except Exception as e:
+        print(f" Erro ao baixar imagem {name}: {e}")
+        return None
+
+# --- FLUXO PRINCIPAL ---
+def process_workflow():
     host = 'imap.gmail.com'
-    if not os.path.exists('downloads'):
-        os.makedirs('downloads')
+    if not os.path.exists('downloads'): os.makedirs('downloads')
 
     try:
         mail = imaplib.IMAP4_SSL(host, 993)
         mail.login(EMAIL_USER, EMAIL_PASS)
         mail.select("inbox")
         
-        # Search for all emails
+        # Busca mensagens recentes
         status, messages = mail.search(None, 'ALL')
-        mail_ids = messages[0].split()
-        
-        if not mail_ids:
-            print("📭 No messages found in inbox.")
-            return []
+        if not messages[0]: return [], None
 
-        # Analyze the most recent emails in reverse order
-        for num in reversed(mail_ids[-20:]): 
-            status, data = mail.fetch(num, '(BODY.PEEK[])')
-            for response_part in data:
-                if isinstance(response_part, tuple):
-                    msg = email.message_from_bytes(response_part[1])
+        # Pega o último email
+        for num in reversed(messages[0].split()[-5:]):
+            status, data = mail.fetch(num, '(RFC822)')
+            msg = email.message_from_bytes(data[0][1])
+            sender_email = email.utils.parseaddr(msg.get('From'))[1]
+
+            for part in msg.walk():
+                if part.get_filename() and part.get_filename().endswith(('.xlsx', '.xls')):
+                    filename = part.get_filename()
+                    excel_path = os.path.join('downloads', filename)
+                    with open(excel_path, 'wb') as f:
+                        f.write(part.get_payload(decode=True))
                     
-                    for part in msg.walk():
-                        if part.get_content_maintype() == 'multipart': continue
-                        if part.get('Content-Disposition') is None: continue
+                    print(f" Planilha '{filename}' recebida de: {sender_email}")
+                    
+                    df = pd.read_excel(excel_path)
+                    scenes_processed = []
+
+                    for _, row in df.iterrows():
+                        # Captura dados das colunas (usando .get para evitar erro se a coluna não existir)
+                        data = {
+                            'name': str(row.get('item_name', '')),
+                            'video_url': str(row.get('video_link', '')),
+                            'image_url': str(row.get('image_link', '')),
+                            'video_redo': str(row.get('video_redo', '')).upper() == 'TRUE',
+                            'only_video': str(row.get('only_video', '')).upper() == 'TRUE',
+                            # As colunas abaixo podem ser usadas depois, mas já lemos agora
+                            'tts': str(row.get('tts', '')).upper() == 'TRUE',
+                            'caption': str(row.get('caption', ''))
+                        }
+
+                        # 1. Baixar Vídeo (se houver link e for solicitado)
+                        if data['video_url'] and data['video_url'] != 'nan' and data['only_video']:
+                             download_video_logic(data['video_url'], data['name'], data['video_redo'])
                         
-                        filename = part.get_filename()
-                        if filename and filename.lower().endswith(('.xlsx', '.xls')):
-                            filepath = os.path.join('downloads', filename)
-                            
-                            print(f" Spreadsheet found: {filename}")
-                            with open(filepath, 'wb') as f:
-                                f.write(part.get_payload(decode=True))
-                            
-                            # Log out before processing the data
-                            mail.close()
-                            mail.logout()
-                            
-                            # CALL PROCESSOR IMMEDIATELY
-                            return excel_reading(filepath)
+                        # 2. Baixar Imagem (se houver link)
+                        if data['image_url'] and data['image_url'] != 'nan':
+                             download_image_logic(data['image_url'], data['name'])
 
-        mail.close()
-        mail.logout()
-        print(" No new spreadsheets found in recent emails.")
-        return []
+                        scenes_processed.append(data)
 
+                    mail.close()
+                    mail.logout()
+                    return scenes_processed, sender_email
+        return [], None
     except Exception as e:
-        print(f"Critical error in workflow: {e}")
-        return []
-
-# --- INTEGRATED WORKFLOW TEST ---
-if __name__ == "__main__":
-    print(" Starting Integrated Workflow (Download + Processing)...")
-    
-    # This single command now handles the entire initial flow
-    spreadsheet_data = download_and_process_latest_spreadsheet()
-    
-    if spreadsheet_data:
-        print("\n--- DATA RECEIVED ---")
-        for scene in spreadsheet_data:
-            print(scene)
-    else:
-        print("\n No scenes were loaded.")
+        print(f" Erro crítico no Communication: {e}")
+        return [], None
