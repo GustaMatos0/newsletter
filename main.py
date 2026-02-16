@@ -1,6 +1,4 @@
-from receiver import download_attachments_from_email
-from mailer import send_custom_email
-from processor import excel_reading
+from communication import download_and_process_latest_spreadsheet, send_custom_email, excel_reading
 import glob
 import os
 
@@ -9,12 +7,12 @@ def run_workflow():
 
     # Step 1: Check for new spreadsheets
     # This will look for unread emails and download .xlsx files to /downloads
-    success_receiving = download_attachments_from_email()
+    success_receiving = download_and_process_latest_spreadsheet()
 
     if success_receiving:
         # Step 2: Send Confirmation Email (First Email)
         # In a real scenario, you'd get the sender's email from the receiver module
-        test_client_email = "ellendsantos1@gmail.com"
+        test_client_email = "glopes675@gmail.com"
         
         send_custom_email(
             test_client_email,

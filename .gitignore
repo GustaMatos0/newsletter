@@ -2,8 +2,10 @@
 testing_tools
 
 downloads
+image_input
 generated_audio
 generated_videos
 
 __pycache__
 
+downloads/testanto.xlsx
