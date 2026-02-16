@@ -12,7 +12,7 @@ def run_workflow():
     if success_receiving:
         # Step 2: Send Confirmation Email (First Email)
         # In a real scenario, you'd get the sender's email from the receiver module
-        test_client_email = "glopes675@gmail.com"
+        test_client_email = "example@mail.com"
         
         send_custom_email(
             test_client_email,
