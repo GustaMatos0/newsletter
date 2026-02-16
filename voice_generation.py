@@ -52,7 +52,7 @@ def apply_noise_gate(audio_segment, threshold_db=-32.0, chunk_size_ms=10):
         # Replace the breathy section with pure silence
         cleaned_audio = cleaned_audio[:start] + silence_chunk + cleaned_audio[end:]
         
-    return cleaned_audio0
+    return cleaned_audio
 
 def generate_speech(
     text, 
