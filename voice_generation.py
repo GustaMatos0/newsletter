@@ -160,12 +160,18 @@ def generate_speech(
             if os.path.exists(temp_path):
                 os.remove(temp_path)
 
+            return True
+
         else:
             print(f"  Error: ElevenLabs API returned {response.status_code}")
             print(f"  Details: {response.text}")
+
+            return False
             
     except Exception as e:
         print(f"  Exception during speech generation: {e}")
+        
+        return False
 
 
 
