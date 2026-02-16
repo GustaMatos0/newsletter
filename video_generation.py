@@ -16,7 +16,7 @@ ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
 load_dotenv()
 
-def generate_video_single(image_path, duration, output_path, prompt=None, model_endpoint=DEFAULT_VIDEO_ENDPOINT, test_mode = "fully_working"):
+def generate_video_single(image_path, duration, output_path, prompt=None, model_endpoint=DEFAULT_VIDEO_ENDPOINT, test_mode = False):
     """
     Generates a single video with specific parameters.
     """
@@ -68,7 +68,7 @@ def generate_video_single(image_path, duration, output_path, prompt=None, model_
 
         result = None
 
-        if test_mode == "fully_working":
+        if not test_mode:
         
             video_handler = fal_client.submit(
                 model_endpoint,
@@ -88,7 +88,7 @@ def generate_video_single(image_path, duration, output_path, prompt=None, model_
                 log.info("  [4/4] Video generated successfully. Downloading...")
                 download_video(video_url, output_path)
 
-        elif test_mode == "static_video":
+        elif test_mode:
             video_url = "https://v3b.fal.media/files/b/0a8866f6/dmGBclH_CBmaku8J31ZE8_output.mp4"
             log.info("defaulting...")
             download_video(video_url, output_path)
