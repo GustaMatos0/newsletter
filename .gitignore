@@ -9,3 +9,5 @@ generated_videos
 __pycache__
 
 downloads/testanto.xlsx
+processed_emails.txt
+video_input
