@@ -11,16 +11,26 @@ ELEVENLABS_TTS_URL = "https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
 
 load_dotenv()
 
-def apply_noise_gate(audio_segment, threshold_db=-32.0, chunk_size_ms=10):
+def apply_noise_gate(audio_segment, threshold_db=-32.0, chunk_size_ms=10, tail_only_ms=200):
     """
     Applies a simple noise gate to the audio to remove breathing/silence.
+    If tail_only_ms is provided, it ONLY applies the gate to the last X milliseconds,
+    leaving the rest of the speech completely untouched.
     """
+    # Split audio into the untouched main part and the tail to be processed
+    if tail_only_ms > 0 and len(audio_segment) > tail_only_ms:
+        main_audio = audio_segment[:-tail_only_ms]
+        target_audio = audio_segment[-tail_only_ms:]
+    else:
+        main_audio = audio_segment[:0] # Empty segment
+        target_audio = audio_segment
+        
     ranges_to_silence = []
     current_silence_start = None
     
-    # Scan audio loudness
-    for i in range(0, len(audio_segment), chunk_size_ms):
-        chunk = audio_segment[i:i+chunk_size_ms]
+    # Scan target audio loudness
+    for i in range(0, len(target_audio), chunk_size_ms):
+        chunk = target_audio[i:i+chunk_size_ms]
         
         if chunk.dBFS < threshold_db:
             if current_silence_start is None:
@@ -32,27 +42,27 @@ def apply_noise_gate(audio_segment, threshold_db=-32.0, chunk_size_ms=10):
                 
     # Handle end of file
     if current_silence_start is not None:
-        ranges_to_silence.append((current_silence_start, len(audio_segment)))
+        ranges_to_silence.append((current_silence_start, len(target_audio)))
         
     if not ranges_to_silence:
-        return audio_segment
+        return audio_segment # Return original if no silence found
         
-    print(f"    -> Noise Gate: Detected {len(ranges_to_silence)} breath/silence segments.")
+    print(f"    -> Noise Gate: Detected {len(ranges_to_silence)} breath/silence segments in the last {tail_only_ms}ms.")
     
-    cleaned_audio = audio_segment
+    cleaned_target = target_audio
     
     # Process in reverse order to maintain indices while constructing new audio
     for start, end in ranges_to_silence[::-1]:
         duration = end - start
-        if duration < 50: # Ignore tiny micro-gaps (artifacts)
-            continue
+        # Removed the 'if duration < 50' check here so it successfully processes small tails
             
         silence_chunk = AudioSegment.silent(duration=duration)
         
         # Replace the breathy section with pure silence
-        cleaned_audio = cleaned_audio[:start] + silence_chunk + cleaned_audio[end:]
+        cleaned_target = cleaned_target[:start] + silence_chunk + cleaned_target[end:]
         
-    return cleaned_audio
+    # Reattach the untouched main audio with the cleaned tail
+    return main_audio + cleaned_target
 
 def generate_speech(
     text, 
@@ -61,11 +71,11 @@ def generate_speech(
     voice_id=DEFAULT_VOICE_ID,
     title_pause=1.0,
     sentence_pause=0.2,
-    noise_gate_threshold=-32.0
+    noise_gate_threshold=-38.0
 ):
     """
     Generates Italian speech using ElevenLabs, then applies a noise gate 
-    to remove breathing sounds before saving the final file.
+    to remove breathing sounds from the end before saving the final file.
     
     Args:
         text (str): The text to be spoken. First line is treated as Title.
@@ -80,7 +90,7 @@ def generate_speech(
     key = api_key or os.environ.get("ELEVENLABS_API_KEY")
     if not key:
         print("Error: ELEVENLABS_API_KEY not found. Please set it or pass it as an argument.")
-        return
+        return False
 
     print(f"Generating speech for: \"{text[:30]}...\"")
     
@@ -141,8 +151,9 @@ def generate_speech(
             
             # 6. Apply Noise Gate
             try:
-                print(f"  Applying noise gate (Threshold: {noise_gate_threshold}dB)...")
+                print(f"  Applying noise gate to last 200ms (Threshold: {noise_gate_threshold}dB)...")
                 audio = AudioSegment.from_mp3(temp_path)
+                # Call apply_noise_gate (it defaults to 50ms now)
                 cleaned = apply_noise_gate(audio, threshold_db=noise_gate_threshold)
                 
                 # 7. Export Cleaned Audio
@@ -159,25 +170,19 @@ def generate_speech(
             # 8. Cleanup Temp File
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-
             return True
 
         else:
             print(f"  Error: ElevenLabs API returned {response.status_code}")
             print(f"  Details: {response.text}")
-
             return False
             
     except Exception as e:
         print(f"  Exception during speech generation: {e}")
-        
         return False
-
-
-
 
 if __name__ == "__main__":
 
-    sample_news_text = ("Giovani artisti dipingeranno i due drappelloni del Palio di Siena 2026. \n")
-    
-    generate_speech(sample_news_text, "saranno_audio.mp3")
+    sample_news_text = ("Arte come pratica educativa: a Torino un collettivo creativo usa il suono per costruire relazioni.  \n")
+
+    print(generate_speech(sample_news_text, "saranno_audio.mp3"))

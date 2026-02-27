@@ -4,6 +4,7 @@ import json
 import argparse
 import shutil
 from moviepy import AudioFileClip, VideoFileClip
+import logging
 
 # Import pandas for Excel support
 try:
@@ -80,11 +81,17 @@ def run_content_generation(config):
     print("\n=== STEP 1: Content Generation & Validation ===")
     
     scenes = config.get("scenes", [])
+
+    print("Config: ", config)
+
+    print("SceneS: ", scenes)
     
     # Ensure directories exist
     for d in [GEN_VIDEO_DIR, GEN_AUDIO_DIR, IMAGE_INPUT_DIR, VIDEO_INPUT_DIR]:
         if not os.path.exists(d):
             os.makedirs(d)
+
+    print(GEN_AUDIO_DIR)
     
     for i, scene in enumerate(scenes):
         item_name = scene.get("item_name")
@@ -92,18 +99,26 @@ def run_content_generation(config):
             print(f"Skipping row {i+1}: Missing 'item_name'.")
             continue
 
+        print("scene: ", scene)
+
         base_name = os.path.splitext(item_name)[0]
         print(f"\nProcessing Item: {item_name}")
 
         # --- 1. Audio Generation Logic ---
         audio_duration = 0
         audio_path = None
+
+        print("TTS?", scene.get('tts'))
+
+
         
         should_tts = scene.get("tts", False)
+        print("should tts?", should_tts)
         title_text = scene.get("title", "").strip()
         
         if should_tts and title_text:
             audio_filename = f"{base_name}_audio.mp3"
+            print("base name: ", base_name)
             audio_path = os.path.join(GEN_AUDIO_DIR, audio_filename)
             
             # Check Redo Flag
@@ -114,6 +129,7 @@ def run_content_generation(config):
             if not os.path.exists(audio_path):
                 print(f"  [Audio] Generating speech...")
                 success = generate_speech(title_text, audio_path)
+                print(success)
                 if not success:
                     print("  [Error] Audio generation failed.")
             else:
@@ -191,6 +207,9 @@ def run_editor(config):
     scenes = config.get("scenes", [])
     
     sequencer = StorySequencer(output_width=output_res[0], output_height=output_res[1])
+
+    print(f"Scenes: {scenes}")
+
     
     scenes_added = 0
 
@@ -218,6 +237,8 @@ def run_editor(config):
             if os.path.exists(cand_path):
                 audio_path = cand_path
 
+        print(audio_path)
+
         # 3. Resolve Text
         title = str(scene.get("title", "")).strip()
         caption = str(scene.get("caption", "")).strip()
@@ -244,6 +265,12 @@ def run_editor(config):
     else:
         print("No valid scenes found to render.")
 
+    def final_generation(config):
+
+        run_content_generation(config)
+
+        run_editor(config)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Excel-based AI Video Generator")
     
@@ -267,6 +294,8 @@ if __name__ == "__main__":
 
     # Load Config
     config_data = load_config(args.config_file)
+
+    print(config_data)
 
     # Execute
     if args.action == "video" or args.action == "all":

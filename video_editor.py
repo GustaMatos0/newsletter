@@ -42,22 +42,32 @@ def resize_and_crop(clip, target_w, target_h):
 
 def create_gradient_bar(width, height, direction='left', color=(0,0,0), max_opacity=0.8):
     """
-    Creates a vertical gradient bar (RGBA) for text background using numpy.
+    Creates a gradient bar (RGBA) for text background using numpy.
+    Supports left, right, top, and bottom fade directions.
     """
     w, h = int(width), int(height)
     
     if w <= 0 or h <= 0:
         return ColorClip(size=(max(1, w), max(1, h)), color=(0,0,0,0))
 
-    x = np.linspace(0, 1, w)
-    
-    if direction == 'left':
-        alpha_row = (1 - x) * 255 * max_opacity
-    else: # right
-        alpha_row = x * 255 * max_opacity
-        
-    alpha_row = alpha_row.reshape(1, w)
-    alpha = np.tile(alpha_row, (h, 1))
+    if direction in ['left', 'right']:
+        x = np.linspace(0, 1, w)
+        if direction == 'left':
+            alpha_row = (1 - x) * 255 * max_opacity
+        else: # right
+            alpha_row = x * 255 * max_opacity
+            
+        alpha_row = alpha_row.reshape(1, w)
+        alpha = np.tile(alpha_row, (h, 1))
+    else:
+        y = np.linspace(0, 1, h)
+        if direction == 'top':
+            alpha_col = (1 - y) * 255 * max_opacity
+        else: # bottom
+            alpha_col = y * 255 * max_opacity
+            
+        alpha_col = alpha_col.reshape(h, 1)
+        alpha = np.tile(alpha_col, (1, w))
     
     r = np.full((h, w), color[0])
     g = np.full((h, w), color[1])
@@ -67,7 +77,7 @@ def create_gradient_bar(width, height, direction='left', color=(0,0,0), max_opac
     
     return ImageClip(img_array)
 
-def create_text_clip(text, font, fontsize, color, size, align='center', stroke_color=None, stroke_width=0):
+def create_text_clip(text, font, fontsize, color, size, align='left', stroke_color=None, stroke_width=0):
     """
     Creates a TextClip with robust error handling for missing fonts and wrapping.
     Fonts have to be in the same folder and named explicitly. Function does not access system fonts.
@@ -108,56 +118,74 @@ def create_text_clip(text, font, fontsize, color, size, align='center', stroke_c
         print(f"\n[ERROR] Failed to render text: '{text[:10]}...'")
         return None
 
-def create_sidebar_clip(width, height, direction, title, caption, title_font = 'Arial',  title_size = 30,
-                         caption_font = 'Arial', caption_size = 20):
+def create_sidebar_clip(width, height, direction, title, caption, title_font='Arial', title_size=30, caption_font='Arial', caption_size=20):
     """
     Creates a composite clip containing the gradient background and text.
+    Adapts layout dynamically to left, right, top, or bottom positioning.
     """
-    bg_width = int(width * 1.2) 
-    bg_clip = create_gradient_bar(bg_width, height, direction=direction)
-    
+    # 1. Establish Layout based on orientation
+    if direction in ['left', 'right']:
+        bg_width = int(width * 1.2) 
+        bg_height = height
+        text_width = int(width * 0.8)
+        padding_x = int(width * 0.1)
+        padding_y = int(height * 0.1)
+        txt_align = 'left'
+    else: # top, bottom
+        bg_width = width
+        bg_height = int(height * 1.2)
+        text_width = int(width * 0.8) # Constrain text to 80% of screen width
+        padding_x = int(width * 0.03)
+        padding_y = int(height * 0.1)
+        txt_align = 'left'
+
+    bg_clip = create_gradient_bar(bg_width, bg_height, direction=direction)
     layers = [bg_clip]
     
-    text_width = int(width * 0.8)
-    padding_x = int(width * 0.1)
+    # 2. Pre-create Text Clips to know their exact height
+    t_clip = None
+    c_clip = None
+    total_text_h = 0
     
-    if direction == 'left':
-        txt_align = 'left'
-    else:
-        txt_align = 'right'
-
-    current_y = int(height * 0.1) 
-
     if title:
-        title_clip = create_text_clip(
-            title, title_font, title_size, color='white', size=(text_width, None),
-            align=txt_align, stroke_color='black', stroke_width=2
-        )
-        if title_clip:
-            if direction == 'left':
-                x_pos = padding_x
-            else:
-                x_pos = bg_width - title_clip.w - padding_x
-                
-            title_clip = title_clip.with_position((x_pos, current_y))
-            layers.append(title_clip)
-            current_y += title_clip.h + 20
-            
+        t_clip = create_text_clip(title, title_font, title_size, color='white', size=(text_width, None),
+                                  align=txt_align, stroke_color='black', stroke_width=2)
+        if t_clip: total_text_h += t_clip.h
+        
     if caption:
-        cap_clip = create_text_clip(
-            caption, caption_font, caption_size, color='yellow', size=(text_width, None),
-            align=txt_align, stroke_color='black', stroke_width=1
-        )
-        if cap_clip:
-            if direction == 'left':
-                x_pos = padding_x
-            else:
-                x_pos = bg_width - cap_clip.w - padding_x
+        c_clip = create_text_clip(caption, caption_font, caption_size, color='yellow', size=(text_width, None),
+                                  align=txt_align, stroke_color='black', stroke_width=1)
+        if c_clip: total_text_h += c_clip.h
+        
+    if t_clip and c_clip:
+        total_text_h += 20 # Padding between title and caption
 
-            cap_clip = cap_clip.with_position((x_pos, current_y))
-            layers.append(cap_clip)
+    # 3. Determine starting vertical cursor
+    if direction in ['left', 'right', 'top']:
+        current_y = padding_y
+    else: # bottom
+        # Solid dark color is at the absolute bottom edge of bg_height
+        current_y = bg_height - padding_y - total_text_h
 
-    return CompositeVideoClip(layers, size=(bg_width, height))
+    # 4. Apply Position and Compose
+    if t_clip:
+        if direction == 'left': x_pos = padding_x
+        elif direction == 'right': x_pos = bg_width - t_clip.w - padding_x
+        else: x_pos = padding_x # Left-aligned for top/bottom with padding
+            
+        t_clip = t_clip.with_position((x_pos, current_y))
+        layers.append(t_clip)
+        current_y += t_clip.h + 20
+            
+    if c_clip:
+        if direction == 'left': x_pos = padding_x
+        elif direction == 'right': x_pos = bg_width - c_clip.w - padding_x
+        else: x_pos = padding_x # Left-aligned for top/bottom with padding
+
+        c_clip = c_clip.with_position((x_pos, current_y))
+        layers.append(c_clip)
+
+    return CompositeVideoClip(layers, size=(bg_width, bg_height))
 
 class VideoCompositor:
     def __init__(self, base_video_path):
@@ -239,7 +267,7 @@ class StorySequencer:
     def add_scene(self, video_path, title, caption, title_font ='Arial',
                     caption_font = 'Arial',
                     effects_duration = 0.5,      # Fade animation length
-                    text_direction='left',       # 'left' or 'right'
+                    text_direction='left',       # 'left', 'right', 'top', 'bottom'
                     audio_path=None              # Optional audio path
                     ):
         """
@@ -311,11 +339,17 @@ class StorySequencer:
 
         # Side-Bar Text Overlay
         if title or caption:
-            sidebar_width_target = int(self.w * 0.3)
+            # Orientation affects text boundaries
+            if text_direction in ['top', 'bottom']:
+                sidebar_width_target = self.w
+                sidebar_height_target = int(self.h * 0.3)
+            else:
+                sidebar_width_target = int(self.w * 0.3)
+                sidebar_height_target = self.h
             
             sidebar_clip = create_sidebar_clip(
                 width=sidebar_width_target,
-                height=self.h,
+                height=sidebar_height_target,
                 direction=text_direction,
                 title=title,
                 caption=caption,
@@ -323,25 +357,35 @@ class StorySequencer:
                 caption_font = caption_font
             )
             
-            # Text starts when video starts and lasts for the full duration of the (possibly looped) video
+            # Text starts when video starts and lasts for the full duration of the video
             text_dur = video_clip.duration
             sidebar_clip = sidebar_clip.with_start(video_start_time).with_duration(text_dur)
             
-            # Positioning Logic (Manual animation)
+            # Positioning Logic (Manual 2D animation)
             if text_direction == 'left':
-                final_x = 0
-                start_x = -sidebar_clip.w
+                start_x, final_x = -sidebar_clip.w, 0
+                start_y, final_y = 0, 0
+            elif text_direction == 'right':
+                start_x, final_x = self.w, self.w - sidebar_clip.w
+                start_y, final_y = 0, 0
+            elif text_direction == 'top':
+                start_x, final_x = 0, 0
+                start_y, final_y = -sidebar_clip.h, 0
+            elif text_direction == 'bottom':
+                start_x, final_x = 0, 0
+                start_y, final_y = self.h, self.h - sidebar_clip.h
             else:
-                final_x = self.w - sidebar_clip.w
-                start_x = self.w
+                # Safety fallback
+                start_x, final_x, start_y, final_y = 0, 0, 0, 0
 
             def slide_pos(t):
                 if t < 1.0: 
                     progress = t / 1.0
                     x = start_x + (final_x - start_x) * progress
-                    return (int(x), "top")
+                    y = start_y + (final_y - start_y) * progress
+                    return (int(x), int(y))
                 else:
-                    return (int(final_x), "top")
+                    return (int(final_x), int(final_y))
 
             sidebar_clip = sidebar_clip.with_position(slide_pos)
             
@@ -372,4 +416,3 @@ class StorySequencer:
             threads=4
         )
         print("Story render complete!")
-
