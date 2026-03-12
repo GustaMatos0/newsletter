@@ -8,7 +8,7 @@ import logging as log
 
 DEFAULT_VISION_ENDPOINT = "openrouter/router/vision"
 DEFAULT_VISION_MODEL = "google/gemini-2.5-flash" 
-DEFAULT_VIDEO_ENDPOINT = "fal-ai/vidu/q3/image-to-video"
+DEFAULT_VIDEO_ENDPOINT = "fal-ai/ltx-2.3/image-to-video/fast"
 
 
 DEFAULT_VOICE_ID = "b8jhBTcGAq4kQGWmKprT" 
@@ -69,6 +69,12 @@ def generate_video_single(image_path, duration, output_path, prompt=None, model_
         result = None
 
         if not test_mode:
+
+            while (duration in [6, 8, 10, 12, 14, 16, 18, 20]) == False:
+                duration += 1
+                if duration > 20:
+                    duration = 20
+
         
             video_handler = fal_client.submit(
                 model_endpoint,
@@ -76,7 +82,8 @@ def generate_video_single(image_path, duration, output_path, prompt=None, model_
                     "image_url": image_url,
                     "prompt": generated_prompt,
                     "duration": duration,
-                    "resolution": "540p"
+                    "resolution": "1080p",
+                    "aspect_ratio": "16:9"
                 }
             )
             result = video_handler.get()

@@ -29,8 +29,23 @@ IMAGE_INPUT_DIR = "image_input"
 VIDEO_INPUT_DIR = "video_input"
 GEN_VIDEO_DIR = "generated_videos"
 GEN_AUDIO_DIR = "generated_audio"
-DEFAULT_RES = [1280, 720]
+DEFAULT_RES = [1920, 1080]
 DEFAULT_FILENAME = "final_story.mp4"
+
+
+def resolve_file_path(base_path, fallback_extensions):
+    """
+    Checks if the exact base_path exists. If not, tries appending fallback extensions.
+    Returns the existing path if found, otherwise returns the original base_path.
+    """
+    if os.path.exists(base_path):
+        return base_path
+    for ext in fallback_extensions:
+        test_path = f"{base_path}{ext}"
+        if os.path.exists(test_path):
+            return test_path
+    return base_path
+
 
 def load_config(config_path):
     """
@@ -114,8 +129,9 @@ def run_content_generation(config):
         
         should_tts = scene.get("tts", False)
         print("should tts?", should_tts)
-        title_text = scene.get("title", "").strip()
+        title_text = scene.get("caption") + "."
         
+
         if should_tts and title_text:
             audio_filename = f"{base_name}_audio.mp3"
             print("base name: ", base_name)
@@ -150,7 +166,8 @@ def run_content_generation(config):
         
         if only_video:
             # --- Case A: User Provided Video ---
-            source_video = os.path.join(VIDEO_INPUT_DIR, item_name)
+            base_source_video = os.path.join(VIDEO_INPUT_DIR, item_name)
+            source_video = resolve_file_path(base_source_video, ['.mp4', '.mov'])
             if not os.path.exists(source_video):
                 print(f"  [Error] only_video=True but file not found: {source_video}")
                 continue
@@ -170,7 +187,9 @@ def run_content_generation(config):
 
         else:
             # --- Case B: AI Generation ---
-            source_image = os.path.join(IMAGE_INPUT_DIR, item_name)
+            base_source_image = os.path.join(IMAGE_INPUT_DIR, item_name)
+            source_image = resolve_file_path(base_source_image, ['.png', '.jpg', '.jpeg', '.webp'])
+
             if not os.path.exists(source_image):
                 print(f"  [Warning] Source image not found: {source_image}")
                 continue
@@ -192,7 +211,7 @@ def run_content_generation(config):
                     prompt=scene.get("video_hint", ""),
                     duration=calc_duration,
                     output_path=target_video_path,
-                    model_endpoint="fal-ai/vidu/q3/image-to-video"
+                    model_endpoint="fal-ai/ltx-2.3/image-to-video/fast"
                 )
             else:
                 print(f"  [Video] Found existing generated video.")
@@ -222,7 +241,8 @@ def run_editor(config):
         
         # 1. Resolve Video Path
         if only_video:
-            video_path = os.path.join(VIDEO_INPUT_DIR, item_name)
+            base_video_path = os.path.join(VIDEO_INPUT_DIR, item_name)
+            video_path = resolve_file_path(base_video_path, ['.mp4', '.mov'])
         else:
             video_path = os.path.join(GEN_VIDEO_DIR, f"{base_name}_video.mp4")
             

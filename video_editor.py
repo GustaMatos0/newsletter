@@ -118,7 +118,7 @@ def create_text_clip(text, font, fontsize, color, size, align='left', stroke_col
         print(f"\n[ERROR] Failed to render text: '{text[:10]}...'")
         return None
 
-def create_sidebar_clip(width, height, direction, title, caption, title_font='Arial', title_size=30, caption_font='Arial', caption_size=20):
+def create_sidebar_clip(width, height, direction, title, caption, title_font='Arial', title_size=40, caption_font='Arial', caption_size=30):
     """
     Creates a composite clip containing the gradient background and text.
     Adapts layout dynamically to left, right, top, or bottom positioning.

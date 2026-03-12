@@ -183,6 +183,6 @@ def generate_speech(
 
 if __name__ == "__main__":
 
-    sample_news_text = ("Arte come pratica educativa: a Torino un collettivo creativo usa il suono per costruire relazioni.  \n")
+    sample_news_text = ("Concepito come servizio museale aggiuntivo del vicino Museo dell’Ara Pacis e del complesso archeologico del Mausoleo di Augusto, Augusto Caffè è l’ennesimo progetto di ristorazione museale senza guizzi, in uno spazio unico al mondo. I limiti di gare d’appalto non aggiornate\n")
 
     print(generate_speech(sample_news_text, "saranno_audio.mp3"))
