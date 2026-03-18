@@ -7,19 +7,20 @@ from email.message import EmailMessage
 from dotenv import load_dotenv
 
 import mimetypes
-
-
-
-
-
+# Updated Google imports for OAuth 2.0 Flow
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
 # Load credentials from .env file
 load_dotenv()
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASS = os.getenv("EMAIL_PASS")
+DRIVE_FOLDER_ID = os.getenv("DRIVE_FOLDER_ID")
 
 PROCESSED_LOG_FILE = "processed_emails.txt"
-
 
 def load_processed_ids():
     """Loads the list of processed email IDs from a file."""
@@ -61,9 +62,75 @@ def excel_reading(archive_path):
 
 # --- COMMUNICATION FUNCTIONS ---
 
+def upload_to_drive(file_path):
+    """
+    Uploads a file to Google Drive and makes it publicly accessible via link.
+    Uses OAuth2 to upload as the user, avoiding Service Account quota limits.
+    Assumes an OAuth Client ID key named 'client_secret.json' is present.
+    """
+    SCOPES = ['https://www.googleapis.com/auth/drive.file']
+    creds = None
+    
+    # The file token.json stores the user's access and refresh tokens.
+    # It is created automatically when the authorization flow completes for the first time.
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+        
+    # If there are no (valid) credentials available, let the user log in.
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            if not os.path.exists('client_secret.json'):
+                print("ERROR: 'client_secret.json' not found. Please download your OAuth Client ID from Google Cloud Console.")
+                return None
+            
+            # This triggers the browser popup for authentication
+            flow = InstalledAppFlow.from_client_secrets_file('client_secret.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+            
+        # Save the credentials for the next run
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+
+    try:
+        service = build('drive', 'v3', credentials=creds)
+
+        file_metadata = {'name': os.path.basename(file_path)}
+        
+        # Add the target folder if specified in the environment variables
+        if DRIVE_FOLDER_ID:
+            file_metadata['parents'] = [DRIVE_FOLDER_ID]
+        else:
+            print("WARNING: DRIVE_FOLDER_ID not found in .env. Uploading to root directory.")
+        
+        ctype, encoding = mimetypes.guess_type(file_path)
+        if ctype is None:
+            ctype = 'application/octet-stream'
+
+        media = MediaFileUpload(file_path, mimetype=ctype, resumable=True)
+
+        print(f"Uploading {file_path} to Google Drive...")
+        file = service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
+
+        # Make the file accessible to anyone with the link
+        service.permissions().create(
+            fileId=file.get('id'),
+            body={'type': 'anyone', 'role': 'reader'}
+        ).execute()
+
+        link = file.get('webViewLink')
+        print(f"Upload successful. Link: {link}")
+        return link
+
+    except Exception as e:
+        print(f"Error uploading to Google Drive: {e}")
+        return None
+
 def send_custom_email(recipient_address, subject, message_body, attachment_path=None):
     """
-    Sends an email using SMTP with optional attachment support.
+    Sends an email using SMTP. If attachment_path is provided, uploads the file 
+    to Google Drive and appends the link to the message body.
     
     Args:
         recipient_address (str): The email address of the recipient.
@@ -78,41 +145,22 @@ def send_custom_email(recipient_address, subject, message_body, attachment_path=
         print("Error: EMAIL_USER or EMAIL_PASS environment variables not set.")
         return False
 
+    # Handle Attachment via Drive Upload
+    if attachment_path and os.path.exists(attachment_path):
+        print("Processing file for Drive upload...")
+        drive_link = upload_to_drive(attachment_path)
+        if drive_link:
+            message_body += f"\n\nHere is the link to download your video:\n{drive_link}"
+        else:
+            message_body += f"\n\n(Note: We tried to upload your video to Google Drive but encountered an error. Please contact support.)"
+    elif attachment_path:
+        print(f"Warning: Attachment path '{attachment_path}' does not exist. Sending email without the link.")
+
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = EMAIL_USER
     msg['To'] = recipient_address
     msg.set_content(message_body)
-
-    # Handle Attachment
-    if attachment_path and os.path.exists(attachment_path):
-        # Guess the MIME type or default to binary
-        ctype, encoding = mimetypes.guess_type(attachment_path)
-        if ctype is None or encoding is not None:
-            # No guess could be made, or the file is encoded (compressed), so
-            # use a generic bag-of-bits type.
-            ctype = 'application/octet-stream'
-        
-        maintype, subtype = ctype.split('/', 1)
-
-        try:
-            with open(attachment_path, 'rb') as f:
-                file_data = f.read()
-                file_name = os.path.basename(attachment_path)
-                
-            msg.add_attachment(
-                file_data,
-                maintype=maintype,
-                subtype=subtype,
-                filename=file_name
-            )
-            print(f"Attachment added: {file_name}")
-        except Exception as e:
-            print(f"Error reading attachment file: {e}")
-            # Depending on requirements, we might want to fail or just send without attachment
-            # For now, we proceed sending the email without the attachment if read fails
-    elif attachment_path:
-        print(f"Warning: Attachment path '{attachment_path}' does not exist. Sending email without attachment.")
 
     try:
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
