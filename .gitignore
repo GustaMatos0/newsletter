@@ -8,6 +8,9 @@ generated_videos
 
 __pycache__
 
+client_secret.json
+token.json
+
 downloads/testanto.xlsx
 processed_emails.txt
 video_input
