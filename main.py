@@ -8,6 +8,7 @@ import traceback
 from communication import download_and_process_latest_spreadsheet, send_custom_email
 # Import the pipeline steps from your main script
 from video_assembly import run_content_generation, run_editor
+import logging as log
 
 # --- Configuration ---
 DOWNLOADS_DIR = "downloads"
@@ -188,8 +189,11 @@ def run_workflow():
                     run_content_generation(config_data)
                     
                     print("--- Running Video Editor ---")
-                    run_editor(config_data)
+                    final_name = run_editor(config_data)
                     
+                    if final_name == None:
+                        raise Exception("No valid video found")
+
                     # Step 5: Send Success Email
                     if os.path.exists(OUTPUT_VIDEO):
                         print("Sending success email with attachment...")
@@ -197,7 +201,7 @@ def run_workflow():
                             client_email,
                             "Video Generation Complete",
                             "Your video has been successfully generated! Please see the attached file.",
-                            attachment_path=OUTPUT_VIDEO
+                            attachment_path=final_name
                         )
                         print("Workflow completed successfully.")
                         
@@ -229,4 +233,5 @@ def run_workflow():
             time.sleep(10)
 
 if __name__ == "__main__":
+    log.basicConfig(level=log.DEBUG)
     run_workflow()

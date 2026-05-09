@@ -38,6 +38,7 @@ def generate_video_single(image_path, duration, output_path, prompt=None, model_
             "Based on this image high-quality prompt for an 8s video generation model. "
             "Be succint, not verbose; A good prompt should ideally be short"
             "The video should be a simple animation of the image"
+            "Showcase items in frame, do not add any new items or people."
             "Output ONLY the final video generation prompt, nothing else."
         )
         
@@ -54,6 +55,7 @@ def generate_video_single(image_path, duration, output_path, prompt=None, model_
                     "model": DEFAULT_VISION_MODEL
                 }
             )
+            print(vision_result)
         
         # Extract the generated text
             generated_prompt = vision_result.get('output', '').strip()
@@ -83,10 +85,12 @@ def generate_video_single(image_path, duration, output_path, prompt=None, model_
                     "prompt": generated_prompt,
                     "duration": duration,
                     "resolution": "1080p",
-                    "aspect_ratio": "16:9"
+                    "aspect_ratio": "9:16"
                 }
             )
             result = video_handler.get()
+
+            print (result)
 
         # Download
         if result != None:

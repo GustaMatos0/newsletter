@@ -3,8 +3,9 @@ import sys
 import json
 import argparse
 import shutil
-from moviepy import AudioFileClip, VideoFileClip
-import logging
+import datetime
+import uuid
+from moviepy import AudioFileClip, VideoFileClip, ImageClip
 
 # Import pandas for Excel support
 try:
@@ -29,23 +30,8 @@ IMAGE_INPUT_DIR = "image_input"
 VIDEO_INPUT_DIR = "video_input"
 GEN_VIDEO_DIR = "generated_videos"
 GEN_AUDIO_DIR = "generated_audio"
+OUTPUT_VIDEO_DIR = "output_videos"
 DEFAULT_RES = [1920, 1080]
-DEFAULT_FILENAME = "final_story.mp4"
-
-
-def resolve_file_path(base_path, fallback_extensions):
-    """
-    Checks if the exact base_path exists. If not, tries appending fallback extensions.
-    Returns the existing path if found, otherwise returns the original base_path.
-    """
-    if os.path.exists(base_path):
-        return base_path
-    for ext in fallback_extensions:
-        test_path = f"{base_path}{ext}"
-        if os.path.exists(test_path):
-            return test_path
-    return base_path
-
 
 def load_config(config_path):
     """
@@ -96,17 +82,11 @@ def run_content_generation(config):
     print("\n=== STEP 1: Content Generation & Validation ===")
     
     scenes = config.get("scenes", [])
-
-    print("Config: ", config)
-
-    print("SceneS: ", scenes)
     
     # Ensure directories exist
     for d in [GEN_VIDEO_DIR, GEN_AUDIO_DIR, IMAGE_INPUT_DIR, VIDEO_INPUT_DIR]:
         if not os.path.exists(d):
             os.makedirs(d)
-
-    print(GEN_AUDIO_DIR)
     
     for i, scene in enumerate(scenes):
         item_name = scene.get("item_name")
@@ -114,27 +94,18 @@ def run_content_generation(config):
             print(f"Skipping row {i+1}: Missing 'item_name'.")
             continue
 
-        print("scene: ", scene)
-
         base_name = os.path.splitext(item_name)[0]
         print(f"\nProcessing Item: {item_name}")
 
         # --- 1. Audio Generation Logic ---
         audio_duration = 0
         audio_path = None
-
-        print("TTS?", scene.get('tts'))
-
-
         
         should_tts = scene.get("tts", False)
-        print("should tts?", should_tts)
-        title_text = scene.get("caption") + "."
+        title_text = scene.get("caption", "").strip() + ". "
         
-
         if should_tts and title_text:
             audio_filename = f"{base_name}_audio.mp3"
-            print("base name: ", base_name)
             audio_path = os.path.join(GEN_AUDIO_DIR, audio_filename)
             
             # Check Redo Flag
@@ -145,7 +116,6 @@ def run_content_generation(config):
             if not os.path.exists(audio_path):
                 print(f"  [Audio] Generating speech...")
                 success = generate_speech(title_text, audio_path)
-                print(success)
                 if not success:
                     print("  [Error] Audio generation failed.")
             else:
@@ -166,8 +136,7 @@ def run_content_generation(config):
         
         if only_video:
             # --- Case A: User Provided Video ---
-            base_source_video = os.path.join(VIDEO_INPUT_DIR, item_name)
-            source_video = resolve_file_path(base_source_video, ['.mp4', '.mov'])
+            source_video = os.path.join(VIDEO_INPUT_DIR, item_name)
             if not os.path.exists(source_video):
                 print(f"  [Error] only_video=True but file not found: {source_video}")
                 continue
@@ -187,9 +156,7 @@ def run_content_generation(config):
 
         else:
             # --- Case B: AI Generation ---
-            base_source_image = os.path.join(IMAGE_INPUT_DIR, item_name)
-            source_image = resolve_file_path(base_source_image, ['.png', '.jpg', '.jpeg', '.webp'])
-
+            source_image = os.path.join(IMAGE_INPUT_DIR, item_name)
             if not os.path.exists(source_image):
                 print(f"  [Warning] Source image not found: {source_image}")
                 continue
@@ -201,18 +168,57 @@ def run_content_generation(config):
                 print(f"  [Video] Redo requested. Removing old file.")
                 os.remove(target_video_path)
                 
+            # Calculate Duration: Audio + 1s (min 5s fallback if no audio)
+            calc_duration = int(audio_duration) + 1 if audio_duration > 0 else 5
+            
+            # If audio is >20s, we enforce a static video. Check if an old (too short) video exists and overwrite it.
+            if audio_duration > 20 and os.path.exists(target_video_path):
+                try:
+                    with VideoFileClip(target_video_path) as clip:
+                        vid_len = clip.duration
+                    if vid_len < calc_duration - 1:
+                        print(f"  [Video] Audio > 10s. Existing video is too short ({vid_len}s). Overwriting with static image...")
+                        os.remove(target_video_path)
+                except Exception:
+                    os.remove(target_video_path)
+            
             if not os.path.exists(target_video_path):
-                # Calculate Duration: Audio + 1s (min 5s fallback if no audio)
-                calc_duration = int(audio_duration) + 1 if audio_duration > 0 else 5
-                
-                print(f"  [Video] Generating AI Video (Duration: {calc_duration}s)...")
-                generate_video_single(
-                    image_path=source_image,
-                    prompt=scene.get("video_hint", ""),
-                    duration=calc_duration,
-                    output_path=target_video_path,
-                    model_endpoint="fal-ai/ltx-2.3/image-to-video/fast"
-                )
+                if audio_duration > 20:
+                    print(f"  [Video] Audio is {audio_duration:.2f}s (> 20s). Creating static video from image...")
+                    try:
+                        img_clip = ImageClip(source_image)
+                        
+                        # Ensure dimensions are even (required by libx264 codec)
+                        w, h = img_clip.w, img_clip.h
+                        safe_w = w - (w % 2)
+                        safe_h = h - (h % 2)
+                        
+                        static_clip = img_clip.cropped(
+                            width=safe_w, 
+                            height=safe_h, 
+                            x_center=w/2, 
+                            y_center=h/2
+                        ).with_duration(calc_duration)
+                        
+                        # Render static video seamlessly so the editor pipeline doesn't crash expecting an mp4
+                        static_clip.write_videofile(
+                            target_video_path, 
+                            fps=24, 
+                            codec='libx264', 
+                            audio=False, 
+                            logger=None
+                        )
+                    except Exception as e:
+                        print(f"  [Error] Could not create static video: {e}")
+                else:
+                    print(f"  [Video] Generating AI Video (Duration: {calc_duration}s)...")
+                    generate_video_single(
+                        image_path=source_image,
+                        prompt=scene.get("video_hint", ""),
+                        duration=calc_duration,
+                        output_path=target_video_path,
+                        model_endpoint="fal-ai/ltx-2.3/image-to-video/fast"
+                    )
             else:
                 print(f"  [Video] Found existing generated video.")
 
@@ -220,15 +226,20 @@ def run_editor(config):
     """Step 2: Assembles the final video."""
     print("\n=== STEP 2: Final Assembly (MoviePy) ===")
     
+    if not os.path.exists(OUTPUT_VIDEO_DIR):
+        os.makedirs(OUTPUT_VIDEO_DIR)
+    
     # Global Configs (JSON might provide these, Excel won't, so defaults apply)
     output_res = config.get("output_resolution", DEFAULT_RES)
-    final_filename = config.get("final_filename", DEFAULT_FILENAME)
+    
+    # Generate dynamic filename: YYYYMMDD_HHMMSS_shortid.mp4
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    short_id = str(uuid.uuid4())[:6]
+    final_filename = os.path.join(OUTPUT_VIDEO_DIR, f"story_{timestamp}_{short_id}.mp4")
+    
     scenes = config.get("scenes", [])
     
     sequencer = StorySequencer(output_width=output_res[0], output_height=output_res[1])
-
-    print(f"Scenes: {scenes}")
-
     
     scenes_added = 0
 
@@ -241,8 +252,7 @@ def run_editor(config):
         
         # 1. Resolve Video Path
         if only_video:
-            base_video_path = os.path.join(VIDEO_INPUT_DIR, item_name)
-            video_path = resolve_file_path(base_video_path, ['.mp4', '.mov'])
+            video_path = os.path.join(VIDEO_INPUT_DIR, item_name)
         else:
             video_path = os.path.join(GEN_VIDEO_DIR, f"{base_name}_video.mp4")
             
@@ -257,8 +267,6 @@ def run_editor(config):
             if os.path.exists(cand_path):
                 audio_path = cand_path
 
-        print(audio_path)
-
         # 3. Resolve Text
         title = str(scene.get("title", "")).strip()
         caption = str(scene.get("caption", "")).strip()
@@ -268,28 +276,64 @@ def run_editor(config):
         
         # 4. Add to Sequencer
         print(f"Adding scene: {item_name}")
+        
+        trans_path = str(scene.get("transition_video_path", "")).strip()
+        if not trans_path:
+            trans_path = "testing_tools/green_screen_template.mp4"
+            
+        trans_audio = str(scene.get("transition_audio_path", "")).strip()
+        if not trans_audio:
+            trans_audio = "testing_tools/transition_sound.mp3"
+            
+        cut_time = scene.get("transition_cut_time")
+        cut_time = float(cut_time) if cut_time else 0.5
+        
+        # Ensure we capture a custom logo path if available, or default to "logo.png"
+        raw_logo_path = str(scene.get("logo_path", "logo.png")).strip()
+        
+        # Toggle Logic: Hide logo if 'only_video' is True, show otherwise.
+        default_show_logo = False
+        
+        # Allow user to override by explicitly adding a 'show_logo' column in Excel
+        if "show_logo" in scene and scene["show_logo"] != "":
+            val = scene["show_logo"]
+            if isinstance(val, str):
+                show_logo = val.lower() in ['true', '1', 'yes']
+            else:
+                show_logo = bool(val)
+        else:
+            show_logo = default_show_logo
+            
+        final_logo_path = raw_logo_path if show_logo else None
+        
         sequencer.add_scene(
             video_path=video_path,
             title=title,
             caption=caption,
             effects_duration=float(scene.get("effects_duration", 0.5)),
-            text_direction=scene.get("text_direction", "left"),
-            audio_path=audio_path
+            text_direction=scene.get("text_direction", "bottom"), # Changed default to bottom for the news ticker
+            audio_path=audio_path,
+            ui_style=str(scene.get("ui_style", "box")), # Defaults to the new box template
+            box_width_pct=float(scene.get("box_width_pct", 0.88)),
+            box_bottom_margin=int(scene.get("box_bottom_margin", 35)),
+            title_size=int(scene.get("title_size", 48)),
+            caption_size=int(scene.get("caption_size", 40)),
+            box_padding=int(scene.get("box_padding", 20)),
+            transition_video_path=trans_path,
+            transition_cut_time=cut_time,
+            transition_audio_path=trans_audio,
+            logo_path=final_logo_path
         )
         scenes_added += 1
 
     if scenes_added > 0:
         print(f"Rendering {scenes_added} scenes to {final_filename}...")
         sequencer.render(final_filename, fps=24)
-        print("Done!")
+        print(f"Done! Video saved to: {final_filename}")
+        return final_filename
     else:
         print("No valid scenes found to render.")
-
-    def final_generation(config):
-
-        run_content_generation(config)
-
-        run_editor(config)
+        return None
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Excel-based AI Video Generator")
@@ -315,11 +359,11 @@ if __name__ == "__main__":
     # Load Config
     config_data = load_config(args.config_file)
 
-    print(config_data)
-
     # Execute
     if args.action == "video" or args.action == "all":
         run_content_generation(config_data)
         
     if args.action == "edit" or args.action == "all":
-        run_editor(config_data)
+        final_path = run_editor(config_data)
+        if final_path:
+            print(f"\nProcess completed successfully. Final video at: {final_path}")
